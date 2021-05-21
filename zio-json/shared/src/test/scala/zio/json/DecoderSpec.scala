@@ -270,6 +270,20 @@ object DecoderSpec extends DefaultRunnableSpec {
           assert(ok.as[UUID])(isRight(equalTo(UUID.fromString("64d7c38d-2afd-4004-9832-4e700fe400f8")))) &&
           assert(bad.as[UUID])(isLeft(containsString("Invalid UUID")))
         }
+      ),
+      suite("enum encoder")(
+        test("simple enum value") {
+          import exampleenums._
+
+          assert(""""RUNNING"""".fromJson[Status])(isRight(equalTo(RUNNING)))
+        },
+        test("case class with enum value") {
+          import exampleenums._
+
+          assert("""{"name":"Sample","status":"FAILURE"}""".fromJson[Entity])(
+            isRight(equalTo(Entity(name = "Sample", status = FAILURE)))
+          )
+        }
       )
     )
 
@@ -339,6 +353,19 @@ object DecoderSpec extends DefaultRunnableSpec {
 
     implicit val eventDecoder: JsonDecoder[Event] = DeriveJsonDecoder.gen[Event]
     implicit val eventEncoder: JsonEncoder[Event] = DeriveJsonEncoder.gen[Event]
+  }
+
+  object exampleenums {
+
+    sealed trait Status
+    case object RUNNING extends Status
+    case object FAILURE extends Status
+
+    case class Entity(name: String, status: Status)
+
+    implicit val statusDecoder: JsonDecoder[Status] = DeriveJsonDecoderEnum.gen[Status]
+    implicit val entityDecoder: JsonDecoder[Entity] = DeriveJsonDecoder.gen[Entity]
+
   }
 
 }

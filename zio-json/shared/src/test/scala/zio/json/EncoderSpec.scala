@@ -226,6 +226,20 @@ object EncoderSpec extends DefaultRunnableSpec {
             (isRight(equalTo(Json.Obj("s" -> Json.Str("hello"), "hint" -> Json.Str("Abel")))))
           )
         }
+      ),
+      suite("enum encoder")(
+        test("encode simple enum value") {
+          import exampleenums._
+
+          assert(RUNNING.asInstanceOf[Status].toJson)(equalTo(""""RUNNING""""))
+        },
+        test("encode case class with enum value") {
+          import exampleenums._
+
+          assert(Entity(name = "Sample", status = FAILURE).toJson)(
+            equalTo("""{"name":"Sample","status":"FAILURE"}""")
+          )
+        }
       )
     )
 
@@ -303,6 +317,19 @@ object EncoderSpec extends DefaultRunnableSpec {
 
     @jsonHint("Abel")
     case class Child2(s: Option[String]) extends Parent
+
+  }
+
+  object exampleenums {
+
+    sealed trait Status
+    case object RUNNING extends Status
+    case object FAILURE extends Status
+
+    case class Entity(name: String, status: Status)
+
+    implicit val statusEncoder: JsonEncoder[Status] = DeriveJsonEncoderEnum.gen[Status]
+    implicit val entityEncoder: JsonEncoder[Entity] = DeriveJsonEncoder.gen[Entity]
 
   }
 

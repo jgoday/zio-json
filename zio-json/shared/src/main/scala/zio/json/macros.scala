@@ -487,3 +487,85 @@ object DeriveJsonCodec {
     JsonCodec(encoder, decoder)
   }
 }
+
+object DeriveJsonDecoderEnum {
+  type Typeclass[A] = JsonDecoder[A]
+
+  def combine[A](ctx: CaseClass[JsonDecoder, A]): JsonDecoder[A] = {
+    val enumValue = ctx.typeName.short
+    if (ctx.isObject) {
+      new JsonDecoder[A] {
+        def unsafeDecode(trace: List[JsonError], in: RetractReader): A = {
+          val value = Lexer.string(trace, in).toString
+          if (value == enumValue) {
+            ctx.rawConstruct(Nil)
+          } else {
+            throw UnsafeJson(JsonError.Message(s"expected ${ctx.typeName.short} got '$value'") :: trace)
+          }
+        }
+
+        override final def fromJsonAST(json: Json): Either[String, A] =
+          json match {
+            case Json.Str(v) if v == enumValue => Right(ctx.rawConstruct(Nil))
+            case _                             => Left("Not an object")
+          }
+      }
+    } else {
+      DeriveJsonDecoder.combine(ctx)
+    }
+  }
+
+  def dispatch[A](ctx: SealedTrait[JsonDecoder, A]): JsonDecoder[A] = {
+    def matchEnum(value: CharSequence): Option[A] =
+      ctx.subtypes
+        .foldLeft(None.asInstanceOf[Option[A]]) {
+          case (v @ Some(_), _) => v
+          case (_, s)           => s.typeclass.decodeJson(s""""$value"""").toOption
+        }
+
+    new JsonDecoder[A] {
+      def unsafeDecode(trace: List[JsonError], in: RetractReader): A = {
+        val value = Lexer.string(trace, in)
+        matchEnum(value).getOrElse(
+          throw UnsafeJson(
+            JsonError.Message("Expected a string") :: trace
+          )
+        )
+      }
+
+      override final def fromJsonAST(json: Json): Either[String, A] =
+        json match {
+          case Json.Str(v) => matchEnum(v).toRight("Not an object")
+          case _           => Left("Not an object")
+        }
+    }
+  }
+
+  def gen[A]: JsonDecoder[A] = macro Magnolia.gen[A]
+}
+
+object DeriveJsonEncoderEnum {
+  type Typeclass[A] = JsonEncoder[A]
+
+  def combine[A](ctx: CaseClass[JsonEncoder, A]): JsonEncoder[A] =
+    new JsonEncoder[A] {
+      def unsafeEncode(a: A, indent: Option[Int], out: Write): Unit =
+        out.write(s""""${ctx.typeName.short}"""")
+
+      override final def toJsonAST(a: A): Either[String, Json] =
+        Right(Json.Str(ctx.typeName.short))
+    }
+
+  def dispatch[A](ctx: SealedTrait[JsonEncoder, A]): JsonEncoder[A] =
+    new JsonEncoder[A] {
+      def unsafeEncode(a: A, indent: Option[Int], out: Write): Unit = ctx.dispatch(a) { sub =>
+        sub.typeclass.unsafeEncode(sub.cast(a), indent, out)
+      }
+
+      override def toJsonAST(a: A): Either[String, Json] = ctx.dispatch(a) { sub =>
+        sub.typeclass.toJsonAST(sub.cast(a))
+      }
+    }
+
+  def gen[A]: JsonEncoder[A] = macro Magnolia.gen[A]
+}
